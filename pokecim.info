@@ -1,0 +1,7 @@
+name = PokeCim
+description = "Test d'entrée à la PokéCim."
+core = 7.x
+package = Cim
+
+files[] = pokecim.api.inc
+files[] = pokecim.admin.inc

@@ -1,0 +1,8 @@
+<?php
+/**
+ * Implements hook_schema
+ */
+function pokecim_schema() {
+  $schema['cache_pokecim'] = drupal_get_schema_unprocessed('system', 'cache');
+  return $schema;
+}

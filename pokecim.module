@@ -1,0 +1,270 @@
+<?php
+/**
+ * Implements hook_flush_caches()
+ */
+function pokecim_flush_caches() {
+    return array('cache_pokecim');
+}
+
+/**
+ * Implements hook_theme()
+ */
+function pokecim_theme() {
+    return array(
+        'pokecim_pokedetail' => array(
+            'variables' => array('pokedata' => NULL),
+            'template' => 'pokecim-detail'
+        )
+    );
+}
+
+/**
+ * Implements hook_menu
+ */
+function pokecim_menu() {
+    $items = [];
+    $items['admin/config/pokecim'] = array(
+        'title' => 'Pokecim',
+        'description' => 'Pokecim data.',
+        'position' => 'left',
+        'weight' => -15, 
+        'page callback' => 'system_admin_menu_block_page',
+        'access arguments' => array('access administration pages'),
+        'file' => 'system.admin.inc',
+    );
+    $items['admin/config/pokecim/data'] = array(
+      'title' => 'PokeCim data',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('pokecim_admin_data'),
+      'access arguments' => array('access administration pages'),
+      'file' => 'pokecim.admin.inc'
+    );
+    $items['pokecim/list'] = array(
+      'title' => 'PokeCim First generation pokemons list',
+      'page callback' => 'pokecim_page_list',
+      'access callback' => TRUE
+    );
+    $items['pokecim/pokedeck/%'] = array(
+        'title callback' => 'pokecim_pokedeck_title',
+        'title arguments' => array(2),
+        'page callback' => 'pokecim_page_pokedeck',
+        'page arguments' => array(2),
+        'access callback' => TRUE
+    );
+    return $items;
+}
+
+/**
+ * Callback function from hook_menu
+ * Return the pokemon's name by its id
+ * 
+ * @param int $id
+ * @return string
+ */
+function pokecim_pokedeck_title($id) {
+    $pokapi = new pokecim();
+    return $pokapi->get_name_by_id($id);
+}
+
+/**
+ * Callback function from hook_menu
+ * Prepare page to see a pokemon in detail
+ * 
+ * @param int $id
+ * @return array
+ *  #Theme : pokecim_pokedetail
+ */
+function pokecim_page_pokedeck($id) {
+    $pokapi = new pokecim();
+    $pokemon = $pokapi->get_pokemon_by_id($id);
+    
+    if ($pokapi->is_empty($pokemon)) {
+        return MENU_NOT_FOUND;
+    }
+    
+    pokecim_pokemon_handle_types($pokemon);
+    pokecim_pokemon_handle_abilities($pokemon);
+    pokecim_pokemon_handle_stats($pokemon);
+    
+    $render = array(
+        '#theme' => 'pokecim_pokedetail',
+        '#pokedata' => $pokemon
+    );
+    return $render;
+}
+
+/**
+ * Prepare types data to render in template
+ * 
+ * @param array $pokemon
+ */
+function pokecim_pokemon_handle_types(&$pokemon) {
+    $pokapi = new pokecim();
+    $types_data = [];
+    foreach ($pokemon['types'] as $type) {
+        $type_id = $pokapi->get_id_by_url($type['type']['url']);
+        $type_data = $pokapi->get_type_by_id($type_id);
+        $pokapi->set_french_name($type_data);
+        $types_data[] = $type_data;
+    }
+    $pokemon['types'] = $types_data;
+}
+
+/**
+ * Prepare abilities data to render in template
+ * 
+ * @param array $pokemon
+ */
+function pokecim_pokemon_handle_abilities(&$pokemon) {
+    $pokapi = new pokecim();
+    $abilities_data = [];
+    foreach ($pokemon['abilities'] as $abilitie) {
+        $abilitie_id = $pokapi->get_id_by_url($abilitie['ability']['url']);
+        $abilitie_data = $pokapi->get_abilitie_by_id($abilitie_id);
+        $pokapi->set_french_name($abilitie_data);
+        $abilities_data[] = $abilitie_data;
+    }
+    $pokemon['abilities'] = $abilities_data;
+}
+
+/**
+ * Prepare statistiques data to render in template
+ * 
+ * @param array $pokemon
+ */
+function pokecim_pokemon_handle_stats(&$pokemon) {
+    $pokapi = new pokecim();
+    foreach ($pokemon['stats'] as &$stat) {
+        $stat_id = $pokapi->get_id_by_url($stat['stat']['url']);
+        $stat_data = $pokapi->get_stat_by_id($stat_id);
+        $pokapi->set_french_name($stat_data);
+        $stat['data'] = $stat_data;
+    }
+}
+
+/**
+ * Callback function from hook_menu
+ * Prepare page to list pokemon from first generation
+ * 
+ * @return string
+ */
+function  pokecim_page_list() {
+    $pokapi = new pokecim();
+    $form = drupal_get_form('pokecim_search_form');
+    $get = drupal_get_query_parameters();
+    
+    if (isset($get['form_id'])) {
+        if (! empty($get['pokemon_name'])) {
+            $name = check_plain($get['pokemon_name']);
+            $pokemon = $pokapi->get_pokemon_by_id($name);
+            if (! $pokapi->is_empty($pokemon)) {
+                drupal_goto($pokapi->get_detail_url_from_name($name));
+            }
+        }
+        if ($get['type_selector'] == 0) {
+            $list = $pokapi->get_pokemons_list_generation_1(); 
+        } else {
+            $list = [];
+            $type = $pokapi->get_type_by_id($get['type_selector']);
+            foreach ($type['pokemon'] as $pokemon) {
+                if (! empty($get['pokemon_name'])) {
+                    $searched_name = check_plain($get['pokemon_name']);
+                    $id = $pokapi->get_id_by_url($pokemon['pokemon']['url']);
+                    $name = $pokapi->get_name_by_id($id);
+                    if (stripos($name, $searched_name) === FALSE ) {
+                        continue;
+                    }
+                }
+                $list[] = $pokemon['pokemon'];
+            }
+            
+        }
+    } else {
+        $list = $pokapi->get_pokemons_list_generation_1();
+    }
+
+    $limit = 5;
+    $page = pager_default_initialize(count($list), $limit);
+    
+    $headers = array('Name','See pokemon');
+    $chunks = array_chunk($list, $limit, TRUE);
+    $pager = theme('pager', array('quantity',count($list)));
+
+    $rows = [];
+    if (! empty($chunks)) {
+        foreach($chunks[$page] as $pokemon) {
+            $id = $pokapi->get_id_by_url($pokemon['url']);
+            $row = [
+              'name' => $pokapi->get_name_by_id($id),
+              'link' => l('See detail', $pokapi->get_detail_url_from_api_url($pokemon['url']))
+            ];
+            $rows[] = $row;
+        }
+    }
+    
+    $output = '';
+    
+    $output .= drupal_render($form);
+    
+    $output .= $pager;
+    $output .= theme('table', array('header' => $headers, 'rows' => $rows, 'empty' => 'Aucun résultat.'));
+    
+    $output .= $pager;
+    return $output;
+}
+
+/**
+ * Callback function for drupal_get_form
+ * Prepare a serach form
+ * 
+ * @param array $form
+ * @param array $form_state
+ * 
+ * @return array
+ */
+function pokecim_search_form($form, &$form_state) {
+    $pokapi = new pokecim();
+    $types = $pokapi->get_types();
+    foreach ($types as &$type) {
+        $type['data'] = $pokapi->get_type_by_id($pokapi->get_id_by_url($type['url']));
+        $pokapi->set_french_name($type['data']);
+    }
+    $options = array(
+        0 => 'Choose type'
+    );
+    foreach ($types as $type) {
+        if (! isset($type['data']['id'])) {
+            continue;
+        }
+        $options[$type['data']['id']] = $type['data']['name'];
+    }
+    $get = drupal_get_query_parameters();
+    $default_name = '';
+    $default_select = 0;
+    if (isset($get['form_id'])) {
+        $default_name = $get['pokemon_name'];
+        $default_select = $get['type_selector'];
+    }
+    $form['#method'] = 'get';
+    
+    $form['pokemon_name'] = array(
+        '#type' => 'textfield',
+        '#placeholder' => 'Pokemon name',
+        '#title' => 'Pokemon name',
+        '#default_value' => $default_name
+    );
+    
+    $form['type_selector'] = array(
+        '#type' => 'select',
+        '#title' => 'Type',
+        '#options' => $options,
+        '#default_value' => $default_select
+    );
+    
+    $form['submit'] = array(
+        '#type' => 'submit',
+        '#value' => 'Rechercher'
+    );
+    return $form;
+}
+
